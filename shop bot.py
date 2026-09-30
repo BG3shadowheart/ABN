@@ -31,12 +31,12 @@ DEFAULT_PAYMENT = (
 # Created the first time the bot starts (only if no saved data exists).
 DEFAULT_PRODUCTS = {
     "fulu ios": {
-        "name": "fulu iOS",
+        "name": "🔥 FLUORITE iOS — PRICE LIST 🔥",
         "category": "ios",
         "prices": [
             ["1 Day", "$3 / ৳400"],
             ["15 Days", "$7 / ৳1,000"],
-            ["1 Month", "$14 / ৳1,400"],
+            ["1 Month", "$15 / ৳2000"],
         ],
     },
 }
