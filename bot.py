@@ -20,7 +20,7 @@ PORT = int(os.environ.get("PORT", "10000"))
 PREFIX = "!"
 HISTORY_LIMIT = 1000
 COOLDOWN = 5
-BOT_VERSION = "v3.2"   # v3.2 = safer voice reconnect + separate title parsing
+BOT_VERSION = "v3.3"   # v3.3 = supports "Lifetime" / "Monthly" without a number
 # ========================================================
 
 PAYMENT_TRIGGERS = [
@@ -119,9 +119,13 @@ def infer_category(name):
 
 
 # ------------------- reading the catalog channel -------------------
+# CHANGED: now matches "Lifetime", "Monthly", "Weekly", etc. WITHOUT a number
 DURATION_RE = re.compile(
-    r"(?<![\d,.])(\d+)\s*(days?|d|weeks?|w|months?|mo|years?|y|lifetime)\b", re.IGNORECASE
+    r"(?:(?<![\d,.])(\d+)\s*(?:days?|d|weeks?|w|months?|mo|years?|y|lifetime)\b"
+    r"|\b(?:lifetime|monthly|weekly|daily|yearly|annual)\b)",
+    re.IGNORECASE,
 )
+
 PRICE_HINT_RE = re.compile(r"[$৳€£]|\b(?:tk|taka|usd|bdt|inr)\b", re.IGNORECASE)
 META_RE = re.compile(r"^\s*(aliases?|category|cat)\s*[:=]\s*(.+?)\s*$", re.IGNORECASE)
 NOTE_LINE_RE = re.compile(r"^\s*note\s*[:=]\s*(.*)$", re.IGNORECASE)
@@ -200,12 +204,12 @@ def parse_message(text, msg_id, has_files):
             value = m.group(1).strip()
             result["note"] = "" if value.lower() == "off" else value
         else:
-            lines-.append(line)
+            lines.append(line)
 
     heads = []
-    forjoined i, l in enumerate(lines):
-        if voice not is_header(l):
-            continue channel
+    for i, l in enumerate(lines):
+        if not is_header(l):
+            continue
         start = i
         if not clean_name(l) and "payment" not in words_of(l):
             j = i - 1
@@ -271,7 +275,6 @@ async def refresh_catalog():
             ch = bot.get_channel(CATALOG_CHANNEL_ID) or await bot.fetch_channel(CATALOG_CHANNEL_ID)
             products, payment, note, seen = {}, None, "", 0
 
-            # Rolling window of recent "title-like" messages (max 3 kept)
             recent_titles = []  # list of (text, msg_id, has_files)
 
             async for msg in ch.history(limit=HISTORY_LIMIT, oldest_first=True):
@@ -284,7 +287,6 @@ async def refresh_catalog():
 
                 r = parse_message(text, msg.id, bool(msg.attachments))
 
-                # Is this a price list with no name of its own?
                 is_bare_price_list = (
                     not r["products"]
                     and not r["payment"]
@@ -292,7 +294,6 @@ async def refresh_catalog():
                     and PRICE_HINT_RE.search(text)
                 )
 
-                # Try combining with recent titles (newest first)
                 if is_bare_price_list and recent_titles:
                     for (t_text, t_id, t_files) in reversed(recent_titles):
                         combined = t_text + "\n\n" + text
@@ -309,7 +310,6 @@ async def refresh_catalog():
                 for entry in r["products"]:
                     products[entry["key"]] = entry
 
-                # Is this a "title-like" message we should remember?
                 is_title_like = (
                     not DURATION_RE.search(text)
                     and not PRICE_HINT_RE.search(text)
@@ -433,17 +433,12 @@ async def keep_in_voice():
         vc = channel.guild.voice_client
         
         if vc is None:
-            # Not connected at all, join
             await channel.connect(reconnect=True, self_deaf=True)
             print("Joined voice channel:", channel.name)
-            
         elif vc.channel.id != channel.id:
-            # Connected to the wrong channel, move
             await vc.move_to(channel)
             print("Moved to voice channel:", channel.name)
-            
         elif not vc.is_connected():
-            # Connection dropped. Give discord.py a moment to auto-reconnect.
             print("Voice disconnected. Waiting 10s for auto-reconnect...")
             await asyncio.sleep(10)
             if not vc.is_connected():
@@ -452,10 +447,9 @@ async def keep_in_voice():
                     await vc.disconnect(force=True)
                 except Exception:
                     pass
-                await asyncio.sleep(2) # Wait before rejoining to avoid rate limits
+                await asyncio.sleep(2)
                 await channel.connect(reconnect=True, self_deaf=True)
-                print("Re after force disconnect")
-                
+                print("Re-joined voice channel after force disconnect")
     except Exception as e:
         print("Voice check problem:", e)
 
