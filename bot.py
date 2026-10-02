@@ -20,7 +20,7 @@ PORT = int(os.environ.get("PORT", "10000"))
 PREFIX = "!"
 HISTORY_LIMIT = 1000
 COOLDOWN = 5
-BOT_VERSION = "v3.4"   # v3.4 = supports Hours/Minutes + skips generic headers
+BOT_VERSION = "v3.5"   # v3.5 = walks up past dividers/generic lines to find the real title
 # ========================================================
 
 PAYMENT_TRIGGERS = [
@@ -89,7 +89,7 @@ def product_mentioned(words, product):
 
 GENERIC_WORDS = {"ios", "android", "pc", "windows", "apk", "mod", "mods", "price", "list", "pro", "vip", "key"}
 
-# NEW: lines made entirely of these words are treated as boilerplate (not a product name)
+# Lines made entirely of these words are treated as boilerplate (not a product name)
 GENERIC_NAME_WORDS = {
     "premium", "license", "licence", "vip", "pro", "standard", "basic",
     "price", "list", "pricing", "package", "pack", "plan", "plans",
@@ -126,7 +126,6 @@ def infer_category(name):
 
 
 # ------------------- reading the catalog channel -------------------
-# CHANGED (v3.4): added hours / minutes / hrs / mins, and bare "hourly"
 DURATION_RE = re.compile(
     r"(?:(?<![\d,.])(\d+)\s*"
     r"(?:days?|d|weeks?|w|months?|mo|years?|y|lifetime|hours?|hrs?|mins?|minutes?)\b"
@@ -168,7 +167,6 @@ def clean_name(text):
         if not line:
             continue
         w = words_of(line)
-        # Skip lines made entirely of generic/boilerplate words
         if w and all(word in GENERIC_NAME_WORDS for word in w):
             continue
         return line
@@ -225,13 +223,32 @@ def parse_message(text, msg_id, has_files):
         if not is_header(l):
             continue
         start = i
+        # If the header line itself isn't a real product name (it's "PRICE LIST" or
+        # "PREMIUM LICENSE PRICE LIST"), walk UP past dividers and generic lines
+        # to find the actual title (e.g. "BALA MOD ANDROID").
         if not clean_name(l) and "payment" not in words_of(l):
             j = i - 1
-            while j >= 0 and not lines[j].strip():
-                j -= 1
-            if (j >= 0 and not is_header(lines[j]) and not META_RE.match(lines[j])
-                    and not PRICE_HINT_RE.search(lines[j]) and not DURATION_RE.search(lines[j])):
+            while j >= 0:
+                s = lines[j].strip()
+                if not s:
+                    j -= 1
+                    continue
+                # divider line (box drawing chars, dashes, symbols only)
+                if not re.search(r"\w", strip_emojis(s)):
+                    j -= 1
+                    continue
+                w = words_of(strip_emojis(s))
+                # generic boilerplate line ("PREMIUM LICENSE", "PRICE LIST", etc.)
+                if w and all(word in GENERIC_NAME_WORDS for word in w):
+                    j -= 1
+                    continue
+                # don't cross into another header / meta / price / duration line
+                if (is_header(s) or META_RE.match(s)
+                        or PRICE_HINT_RE.search(s) or DURATION_RE.search(s)):
+                    break
+                # real title line found
                 start = j
+                break
         if start not in heads:
             heads.append(start)
     if heads:
