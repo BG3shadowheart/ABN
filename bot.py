@@ -20,7 +20,7 @@ PORT = int(os.environ.get("PORT", "10000"))
 PREFIX = "!"
 HISTORY_LIMIT = 1000
 COOLDOWN = 5
-BOT_VERSION = "v3.3"   # v3.3 = supports "Lifetime" / "Monthly" without a number
+BOT_VERSION = "v3.4"   # v3.4 = supports Hours/Minutes + skips generic headers
 # ========================================================
 
 PAYMENT_TRIGGERS = [
@@ -89,6 +89,13 @@ def product_mentioned(words, product):
 
 GENERIC_WORDS = {"ios", "android", "pc", "windows", "apk", "mod", "mods", "price", "list", "pro", "vip", "key"}
 
+# NEW: lines made entirely of these words are treated as boilerplate (not a product name)
+GENERIC_NAME_WORDS = {
+    "premium", "license", "licence", "vip", "pro", "standard", "basic",
+    "price", "list", "pricing", "package", "pack", "plan", "plans",
+    "updated", "update", "new", "latest",
+}
+
 
 def partial_mentioned(words, product):
     parts = [w for w in words_of(product["name"]) if len(w) >= 4 and w not in GENERIC_WORDS]
@@ -119,10 +126,11 @@ def infer_category(name):
 
 
 # ------------------- reading the catalog channel -------------------
-# CHANGED: now matches "Lifetime", "Monthly", "Weekly", etc. WITHOUT a number
+# CHANGED (v3.4): added hours / minutes / hrs / mins, and bare "hourly"
 DURATION_RE = re.compile(
-    r"(?:(?<![\d,.])(\d+)\s*(?:days?|d|weeks?|w|months?|mo|years?|y|lifetime)\b"
-    r"|\b(?:lifetime|monthly|weekly|daily|yearly|annual)\b)",
+    r"(?:(?<![\d,.])(\d+)\s*"
+    r"(?:days?|d|weeks?|w|months?|mo|years?|y|lifetime|hours?|hrs?|mins?|minutes?)\b"
+    r"|\b(?:lifetime|monthly|weekly|daily|yearly|annual|hourly)\b)",
     re.IGNORECASE,
 )
 
@@ -152,12 +160,18 @@ def strip_emojis(text):
 
 
 def clean_name(text):
+    """Return the first meaningful line, skipping boilerplate like 'PREMIUM LICENSE PRICE LIST'."""
     text = strip_emojis(text)
     text = re.sub(r"[\s\-–—:|]*\bprice(?:\s*list)?\b", "", text, flags=re.IGNORECASE)
     for line in text.splitlines():
         line = re.sub(r"^[^\w]+|[^\w]+$", "", line.strip())
-        if line:
-            return line
+        if not line:
+            continue
+        w = words_of(line)
+        # Skip lines made entirely of generic/boilerplate words
+        if w and all(word in GENERIC_NAME_WORDS for word in w):
+            continue
+        return line
     return ""
 
 
