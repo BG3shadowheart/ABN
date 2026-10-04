@@ -20,7 +20,8 @@ PORT = int(os.environ.get("PORT", "10000"))
 PREFIX = "!"
 HISTORY_LIMIT = 1000
 COOLDOWN = 5
-BOT_VERSION = "v3.5"   # v3.5 = walks up past dividers/generic lines to find the real title
+DELETE_AFTER = 60      # seconds — bot deletes its own price/payment replies after this
+BOT_VERSION = "v3.6"   # v3.6 = auto-delete replies after 1 minute
 # ========================================================
 
 PAYMENT_TRIGGERS = [
@@ -89,7 +90,6 @@ def product_mentioned(words, product):
 
 GENERIC_WORDS = {"ios", "android", "pc", "windows", "apk", "mod", "mods", "price", "list", "pro", "vip", "key"}
 
-# Lines made entirely of these words are treated as boilerplate (not a product name)
 GENERIC_NAME_WORDS = {
     "premium", "license", "licence", "vip", "pro", "standard", "basic",
     "price", "list", "pricing", "package", "pack", "plan", "plans",
@@ -159,7 +159,6 @@ def strip_emojis(text):
 
 
 def clean_name(text):
-    """Return the first meaningful line, skipping boilerplate like 'PREMIUM LICENSE PRICE LIST'."""
     text = strip_emojis(text)
     text = re.sub(r"[\s\-–—:|]*\bprice(?:\s*list)?\b", "", text, flags=re.IGNORECASE)
     for line in text.splitlines():
@@ -223,9 +222,6 @@ def parse_message(text, msg_id, has_files):
         if not is_header(l):
             continue
         start = i
-        # If the header line itself isn't a real product name (it's "PRICE LIST" or
-        # "PREMIUM LICENSE PRICE LIST"), walk UP past dividers and generic lines
-        # to find the actual title (e.g. "BALA MOD ANDROID").
         if not clean_name(l) and "payment" not in words_of(l):
             j = i - 1
             while j >= 0:
@@ -233,20 +229,16 @@ def parse_message(text, msg_id, has_files):
                 if not s:
                     j -= 1
                     continue
-                # divider line (box drawing chars, dashes, symbols only)
                 if not re.search(r"\w", strip_emojis(s)):
                     j -= 1
                     continue
                 w = words_of(strip_emojis(s))
-                # generic boilerplate line ("PREMIUM LICENSE", "PRICE LIST", etc.)
                 if w and all(word in GENERIC_NAME_WORDS for word in w):
                     j -= 1
                     continue
-                # don't cross into another header / meta / price / duration line
                 if (is_header(s) or META_RE.match(s)
                         or PRICE_HINT_RE.search(s) or DURATION_RE.search(s)):
                     break
-                # real title line found
                 start = j
                 break
         if start not in heads:
@@ -300,13 +292,12 @@ refresh_lock = asyncio.Lock()
 
 
 async def refresh_catalog():
-    """Re-reads the whole catalog channel. Looks back up to 3 messages for a title."""
     async with refresh_lock:
         try:
             ch = bot.get_channel(CATALOG_CHANNEL_ID) or await bot.fetch_channel(CATALOG_CHANNEL_ID)
             products, payment, note, seen = {}, None, "", 0
 
-            recent_titles = []  # list of (text, msg_id, has_files)
+            recent_titles = []
 
             async for msg in ch.history(limit=HISTORY_LIMIT, oldest_first=True):
                 if msg.author.id == bot.user.id:
@@ -449,7 +440,9 @@ async def reply_entries(message, entries, add_note=False):
     parts = chunk_text(text)
     for i, part in enumerate(parts):
         last = i == len(parts) - 1
-        kwargs = {"files": files} if (last and files) else {}
+        kwargs = {"delete_after": DELETE_AFTER}
+        if last and files:
+            kwargs["files"] = files
         if i == 0:
             await message.reply(part, mention_author=False, **kwargs)
         else:
