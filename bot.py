@@ -20,8 +20,22 @@ PORT = int(os.environ.get("PORT", "10000"))
 PREFIX = "!"
 HISTORY_LIMIT = 1000
 COOLDOWN = 5
-DELETE_AFTER = 60      # seconds — bot deletes its own price/payment replies after this
-BOT_VERSION = "v3.6"   # v3.6 = auto-delete replies after 1 minute
+DELETE_AFTER = 60
+BOT_VERSION = "v3.9"   # v3.9 = blacklist — bot ignores these channels
+
+# Channels where the bot must NOT auto-reply. Everywhere else it works normally.
+BLACKLIST_CHANNEL_IDS = {
+    1506644600096559105,
+    1506644501618233497,
+    1524393860086894752,
+    1547924934716686367,
+    1506644665590349984,
+    1506644782527545495,
+    1506646093977489589,
+    1506644846058934373,
+    1506644904808415323,
+    1524429980967239910,
+}
 # ========================================================
 
 PAYMENT_TRIGGERS = [
@@ -509,6 +523,7 @@ async def on_message(message):
     if message.guild is None:
         return
 
+    # Catalog channel — keep learning, don't auto-reply
     if message.channel.id == CATALOG_CHANNEL_ID:
         if message.author.id != bot.user.id:
             schedule_refresh()
@@ -521,6 +536,10 @@ async def on_message(message):
 
     if message.content.startswith(PREFIX):
         await bot.process_commands(message)
+        return
+
+    # ← BLACKLIST: bot stays silent in these channels
+    if message.channel.id in BLACKLIST_CHANNEL_IDS:
         return
 
     words = words_of(message.content)
@@ -609,6 +628,14 @@ async def debug_cmd(ctx):
             break
     for part in chunk_text("\n".join(out)):
         await ctx.send(part)
+
+
+@bot.command(name="ping")
+async def ping_cmd(ctx):
+    """Reply test — works in any non-blacklisted channel."""
+    blocked = ctx.channel.id in BLACKLIST_CHANNEL_IDS
+    await ctx.send(f"🏓 pong — channel `<{ctx.channel.id}>` "
+                   f"{'**BLOCKED** ❌' if blocked else 'active ✅'}")
 
 
 @bot.event
