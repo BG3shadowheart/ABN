@@ -20,7 +20,7 @@ PORT = int(os.environ.get("PORT", "10000"))
 PREFIX = "!"
 HISTORY_LIMIT = 1000
 COOLDOWN = 5
-DELETE_AFTER = 60
+DELETE_AFTER = 86401
 BOT_VERSION = "v3.9"   # v3.9 = blacklist — bot ignores these channels
 
 # Channels where the bot must NOT auto-reply. Everywhere else it works normally.
